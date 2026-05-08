@@ -1,6 +1,6 @@
-# Base Engine & Server
 fastapi
 uvicorn[standard]
+gunicorn
 requests
 httpx
 sqlalchemy
@@ -8,22 +8,14 @@ python-dotenv
 pydantic
 vastai
 websockets
-
-# 1. Text, Image & Video Foundations
 openai
 google-generativeai
 google-cloud-vision
-
-# 2. Amazon AWS (For Nova Reel)
 boto3
-
-# 3. Open Source & Specialist LLMs
 huggingface-hub
 groq
 mistralai
 cohere
-
-# 4. Audio & Translation
 edge-tts
 deepl
 ibm-watson
