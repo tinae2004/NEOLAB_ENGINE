@@ -257,8 +257,10 @@
                 }
                 
                 if (allowInput) {
+                    // Update WebSocket URL for cloud deployment (detects wss:// for https://)
+                    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
                     if (window.ws) window.ws.close();
-                    window.ws = new WebSocket(`ws://${window.location.host}/ws/terminal?user_id=user_001`);
+                    window.ws = new WebSocket(`${protocol}//${window.location.host}/ws/terminal?user_id=user_001`);
                     let currentLine = "";
                     window.termInstance.onData(e => {
                         if (e === '\r') { window.termInstance.write('\r\n'); window.ws.send(currentLine); currentLine = ""; } 
