@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>NEO LAB</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm/css/xterm.css" />
+    <script src="https://cdn.jsdelivr.net/npm/xterm/lib/xterm.js"></script>
+    <style>
+        body { background-color: #09090b; color: #fafafa; font-family: -apple-system, sans-serif; }
+        .glass-panel { background: rgba(255, 255, 255, 0.05); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); }
+        .app-card { transition: all 0.2s ease-in-out; }
+        .app-card:active { transform: scale(0.98); }
+        ::-webkit-scrollbar { width: 0px; background: transparent; }
+        .chat-bubble { animation: fadeIn 0.3s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .neon-green { text-shadow: 0 0 5px rgba(74, 222, 128, 0.8), 0 0 10px rgba(74, 222, 128, 0.5); }
+        .xterm-viewport { overflow-y: auto !important; }
+        .xterm-screen { min-height: 100%; }
+        .folder-item { transition: background 0.2s; cursor: pointer; }
+        .folder-item:active { background: rgba(59, 130, 246, 0.2); }
+    </style>
+    
+    <script>
+        window.addEventListener('beforeunload', function (e) {
+            e.preventDefault();
+            e.returnValue = 'Are you sure you want to exit? Active processes may be interrupted.';
+        });
+
+        const gpuDatabase = {
+            "6": [ { "model": "NVIDIA RTX 2060", "power_percentage": 100, "label": "Top Tier 6GB" }, { "model": "NVIDIA RTX 3050", "power_percentage": 85, "label": "Modern Architecture" }, { "model": "NVIDIA GTX 1660 Ti", "power_percentage": 75, "label": "Cost-Effective" } ],
+            "8": [ { "model": "NVIDIA RTX 4060 Ti", "power_percentage": 100, "label": "Extremely Powerful" }, { "model": "NVIDIA RTX 3070 Ti", "power_percentage": 95, "label": "High Performance" }, { "model": "NVIDIA RTX 4060", "power_percentage": 85, "label": "Efficient" } ],
+            "12": [ { "model": "NVIDIA RTX 4070 Ti", "power_percentage": 100, "label": "Extremely Powerful" }, { "model": "NVIDIA RTX 3080", "power_percentage": 90, "label": "High Performance" } ],
+            "16": [ { "model": "NVIDIA RTX 4080", "power_percentage": 100, "label": "Extremely Powerful" }, { "model": "NVIDIA RTX 4070 Ti Super", "power_percentage": 85, "label": "High Performance" }, { "model": "NVIDIA RTX 5000", "power_percentage": 75, "label": "Workstation" } ],
+            "20": [ { "model": "NVIDIA RTX 3080 Ti", "power_percentage": 100, "label": "High Performance" } ],
+            "24": [ { "model": "NVIDIA RTX 4090", "power_percentage": 100, "label": "Extremely Powerful" }, { "model": "AMD Radeon RX 7900 XTX", "power_percentage": 80, "label": "Team Red Flagship" }, { "model": "NVIDIA RTX 3090", "power_percentage": 65, "label": "Cost-Effective" } ],
+            "32": [ { "model": "NVIDIA RTX 5090", "power_percentage": 100, "label": "Next Gen Peak" } ],
+            "40": [ { "model": "NVIDIA A100 40GB", "power_percentage": 100, "label": "Enterprise Compute" } ],
+            "48": [ { "model": "NVIDIA RTX 6000 Ada", "power_percentage": 100, "label": "Extremely Powerful" }, { "model": "NVIDIA L40", "power_percentage": 90, "label": "Visual Computing" } ],
+            "80": [ { "model": "NVIDIA H100", "power_percentage": 100, "label": "State of the Art" }, { "model": "NVIDIA A100 80GB", "power_percentage": 60, "label": "Deep Learning" } ],
+            "141": [ { "model": "NVIDIA H200", "power_percentage": 100, "label": "Extreme Memory Bandwidth" } ],
+            "192": [ { "model": "NVIDIA B200", "power_percentage": 100, "label": "Blackwell Flagship" } ]
+        };
+
+        window.processVramAndNext = function() {
+            const vram = document.getElementById('vramInput').value;
+            const gpus = gpuDatabase[vram];
+            const container = document.getElementById('gpu-options-container');
+            if (!gpus) {
+                container.innerHTML = `<div class="border border-yellow-500 bg-yellow-500/10 p-4 rounded-xl text-center"><p class="text-yellow-400 font-bold mb-2">Non-Standard VRAM Detected</p><button onclick="window.selectGpu('Auto VRAM Search')" class="w-full bg-yellow-600 font-bold py-2 rounded-lg text-sm text-black">Force Scan Market</button></div>`;
+                window.nextWizard(2);
+                return;
+            }
+
+            let html = '';
+            gpus.forEach(gpu => {
+                let colorClass = "text-gray-400"; let borderClass = "border-gray-700 bg-black/50"; let barColor = "bg-gray-400";
+                if (gpu.power_percentage >= 90) { colorClass = "text-green-400"; borderClass = "border-green-500/50 bg-green-500/10 hover:border-green-400"; barColor = "bg-green-500"; } 
+                else if (gpu.power_percentage >= 70) { colorClass = "text-blue-400"; borderClass = "border-blue-500/50 bg-blue-500/10 hover:border-blue-400"; barColor = "bg-blue-500"; } 
+                else { colorClass = "text-yellow-400"; borderClass = "border-gray-700 bg-black/50 hover:border-yellow-500/50"; barColor = "bg-yellow-500"; }
+
+                html += `
+                <div onclick="window.selectGpu('${gpu.model}')" class="border ${borderClass} p-4 rounded-xl cursor-pointer transition-all active:scale-95">
+                    <div class="flex justify-between items-center mb-1"><h3 class="font-bold text-white">${gpu.model}</h3><span class="text-[10px] bg-black/50 px-2 py-0.5 rounded text-gray-300 font-mono">${gpu.power_percentage}% PWR</span></div>
+                    <p class="text-xs ${colorClass}">${gpu.label}</p>
+                    <div class="w-full bg-black/80 rounded-full h-1 mt-2"><div class="${barColor} h-1 rounded-full" style="width: ${gpu.power_percentage}%"></div></div>
+                </div>`;
+            });
+            container.innerHTML = html;
+            window.nextWizard(2);
+        };
+
+        window.fetchLiveNodes = async function(vram, storage, gpu) {
+            const container = document.getElementById('host-options-container');
+            const timerEl = document.getElementById('market-refresh-timer');
+            if(window.liveMarketInterval) clearInterval(window.liveMarketInterval);
+            if(timerEl) timerEl.innerHTML = `<span class="animate-pulse text-yellow-400 font-mono">SCANNING...</span>`;
+            container.innerHTML = `<p class="text-blue-400 font-bold animate-pulse text-center my-4">Sweeping Datacenters...</p>`;
+            try {
+                const res = await fetch(`/api/v1/workspace/scan_market?vram=${vram}&storage=${storage}&gpu_name=${encodeURIComponent(gpu)}`);
+                const data = await res.json();
+                if(data.status === "success" && data.nodes) {
+                    let html = '';
+                    data.nodes.forEach((host) => {
+                        let isBest = host.tag === "BEST OVERALL VALUE";
+                        let borderClass = isBest ? "border-green-500 bg-green-500/10" : "border-gray-700 bg-black/50";
+                        let textClass = isBest ? "text-green-400" : "text-red-400";
+                        let badge = isBest ? `<div class="absolute top-0 right-0 bg-green-500 text-black text-[10px] font-bold px-2 py-1 rounded-bl-lg">BEST VALUE</div>` : '';
+                        
+                        html += `
+                        <div onclick="window.selectHost('${host.id}', '${host.host}', ${host.price})" class="border ${borderClass} p-4 rounded-xl mb-3 cursor-pointer relative overflow-hidden transition-all active:scale-95">
+                            ${badge}
+                            <div class="flex justify-between items-center mb-1"><h3 class="font-bold text-white">${host.host.split(' (')[0]}</h3><span class="${textClass} font-bold">$${host.price.toFixed(3)}/hr</span></div>
+                            <div class="flex justify-between items-center text-xs mt-1"><span class="text-gray-400">Net: ${host.network} | GPU: ${host.host.split('(')[1] ? host.host.split('(')[1].replace(')','') : host.host}</span><span class="text-green-400 font-mono bg-green-500/10 px-1 rounded border border-green-500/30">${host.score}</span></div>
+                            <p class="text-[9px] text-blue-400 mt-2 uppercase font-bold tracking-wider">${host.tag}</p>
+                        </div>`;
+                    });
+                    container.innerHTML = html;
+                    window.marketCountdown = 180;
+                    window.startCountdownTimer(vram, storage, gpu);
+                } else { throw new Error("Failed"); }
+            } catch(e) { container.innerHTML = `<p class="text-red-400 text-center text-sm font-bold">API Offline: Retrying roll call...</p>`; }
+        };
+
+        window.startCountdownTimer = function(vram, storage, gpu) {
+            window.liveMarketInterval = setInterval(() => {
+                window.marketCountdown--;
+                if(window.marketCountdown <= 0) { clearInterval(window.liveMarketInterval); window.fetchLiveNodes(vram, storage, gpu); }
+                const timerEl = document.getElementById('market-refresh-timer');
+                if(timerEl && window.marketCountdown > 0) {
+                    let mins = Math.floor(window.marketCountdown / 60);
+                    let secs = window.marketCountdown % 60;
+                    timerEl.innerHTML = `LIVE 0${mins}:${secs < 10 ? '0'+secs : secs}`;
+                }
+            }, 1000);
+        };
+
+        window.selectedGpu = ""; window.selectedHostId = ""; window.selectedHostCost = 0; window.selectedHostName = ""; window.selectedStorage = 100;
+        
+        window.nextWizard = function(step) {
+            document.querySelectorAll('[id^="wizard-step-"]').forEach(el => el.classList.add('hidden'));
+            document.getElementById('wizard-step-' + step).classList.remove('hidden');
+            if (step === 4) { window.fetchLiveNodes(document.getElementById('vramInput').value, document.getElementById('storageInput').value, window.selectedGpu); }
+        };
+
+        window.gpuWizardBack = function() {
+            let currentStep = 1;
+            for(let i=1; i<=5; i++) {
+                if(!document.getElementById('wizard-step-'+i).classList.contains('hidden')) {
+                    currentStep = i; break;
+                }
+            }
+            if(currentStep === 1) {
+                window.switchView('view-home');
+            } else {
+                window.nextWizard(currentStep - 1);
+            }
+        };
+        
+        window.selectGpu = function(gpuName) { window.selectedGpu = gpuName; window.nextWizard(3); };
+        window.selectHost = function(id, host, cost) { window.selectedHostId = id; window.selectedHostName = host; window.selectedStorage = document.getElementById('storageInput').value || 100; window.selectedHostCost = cost; window.nextWizard(5); };
+
+        window.restoreWizardStep5 = function() {
+            document.getElementById('wizard-step-5').innerHTML = `
+                <h2 class="text-2xl font-bold mb-2">Workspace Mode</h2>
+                <button onclick="window.executeDeploy('expert')" class="w-full border border-gray-600 bg-transparent hover:bg-white/5 font-bold py-4 rounded-xl mb-4 transition-all">I am an Expert (Raw Terminal)</button>
+                <button onclick="window.executeDeploy('beginner')" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-xl transition-all shadow-[0_0_15px_rgba(37,99,235,0.4)]">
+                    I am a Beginner <br><span class="text-xs text-blue-200 font-normal">(NEO Assistant +$0.03/hr)</span>
+                </button>
+            `;
+        };
+
+        // THE REAL DEPLOYMENT LOGIC (RESTORED)
+        window.executeDeploy = async function(mode) {
+            document.getElementById('wizard-step-5').innerHTML = `
+                <p class="text-blue-400 font-bold animate-pulse text-lg mb-4">Igniting Datacenter...</p>
+                <p class="text-xs text-gray-400 mb-6">Securing allocation and booting instance via Vast.ai.</p>
+                <button onclick="window.restoreWizardStep5(); window.nextWizard(4);" class="border border-red-500/50 bg-red-500/10 text-red-500 px-4 py-3 w-full rounded-xl text-sm font-bold transition-all active:scale-95 hover:border-red-400">Cancel</button>
+            `;
+            
+            try {
+                let extractedGpu = window.selectedHostName.includes('(') ? window.selectedHostName.split('(')[1].replace(')', '') : window.selectedHostName;
+                document.getElementById('neoxGpuDisplay').innerText = extractedGpu;
+                
+                // Real fetch to your locked backend
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 15000); 
+                
+                const res = await fetch('/api/v1/workspace/deploy', {
+                    method: 'POST', headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({ user_id: "user_001", dph: window.selectedHostCost, mode: mode, offer_id: window.selectedHostId, storage: window.selectedStorage }),
+                    signal: controller.signal
+                });
+                clearTimeout(timeoutId);
+                const data = await res.json();
+                
+                if(res.ok) {
+                    document.getElementById('walletBalance').innerText = `$${data.new_balance.toFixed(2)}`; 
+                    document.getElementById('headerBalance').innerText = `$${data.new_balance.toFixed(2)}`; 
+                    
+                    document.getElementById('wizard-step-5').innerHTML = `
+                        <p class="text-green-400 font-bold animate-pulse text-lg mb-4">Payment Secured!</p>
+                        <p class="text-xs text-gray-400 mb-6">Contract ID: ${data.instance_id}<br>Booting physical metal...</p>
+                    `;
+                    
+                    // REAL-TIME POLLING FROM DATACENTER
+                    let bootInterval = setInterval(async () => {
+                        try {
+                            const statRes = await fetch(`/api/v1/workspace/status/${data.instance_id}`);
+                            const statData = await statRes.json();
+                            
+                            if(statData.status === "running") {
+                                clearInterval(bootInterval);
+                                // Automatically drop into NEOX when the metal is hot
+                                window.switchView('view-neox');
+                            }
+                        } catch(e) {
+                            console.log("Polling datacenter...");
+                        }
+                    }, 3000);
+                } else { 
+                    document.getElementById('wizard-step-5').innerHTML = `<p class="text-red-500 font-bold mb-4">[ERROR] ${data.detail}</p>`;
+                    setTimeout(() => { window.restoreWizardStep5(); }, 3000);
+                }
+            } catch(api_err) { 
+                document.getElementById('wizard-step-5').innerHTML = `<p class="text-red-500 font-bold mb-4">Network timeout or Datacenter refused connection.</p>`;
+                setTimeout(() => { window.restoreWizardStep5(); window.nextWizard(4); }, 3000);
+            }
+        };
+
+        window.toggleMenu = function() {
+            try {
+                const s = document.getElementById('sidebar');
+                const o = document.getElementById('sidebarOverlay');
+                if(s) s.classList.toggle('-translate-x-full');
+                if(o) o.classList.toggle('hidden');
+            } catch(e) {}
+        };
+
+        window.switchView = function(viewId) {
+            try {
+                ['view-home', 'view-neox', 'view-gpu', 'view-vault', 'view-video'].forEach(id => {
+                    const el = document.getElementById(id);
+                    if(el) el.classList.add('hidden');
+                });
+                document.getElementById(viewId).classList.remove('hidden');
+                document.getElementById('sidebar').classList.add('-translate-x-full');
+                document.getElementById('sidebarOverlay').classList.add('hidden');
+
+                if(viewId === 'view-gpu') {
+                    [1,2,3,4,5].forEach(i => {
+                        let el = document.getElementById('wizard-step-'+i);
+                        if(el) el.classList.add('hidden');
+                    });
+                    document.getElementById('wizard-step-1').classList.remove('hidden');
+                    window.restoreWizardStep5();
+                }
+
+                if(viewId === 'view-neox') {
+                    window.initNeoxTerminal();
+                }
+            } catch(e) {}
+        };
+
+        window.switchVideoMode = function(mode) {
+            if(mode === 'expert') {
+                document.getElementById('video-expert-ui').classList.remove('hidden');
+                document.getElementById('video-beginner-ui').classList.add('hidden');
+                document.getElementById('tab-expert').classList.replace('text-gray-500', 'text-purple-400');
+                document.getElementById('tab-expert').classList.replace('border-transparent', 'border-purple-500');
+                document.getElementById('tab-beginner').classList.replace('text-purple-400', 'text-gray-500');
+                document.getElementById('tab-beginner').classList.replace('border-purple-500', 'border-transparent');
+            } else {
+                document.getElementById('video-beginner-ui').classList.remove('hidden');
+                document.getElementById('video-expert-ui').classList.add('hidden');
+                document.getElementById('tab-beginner').classList.replace('text-gray-500', 'text-purple-400');
+                document.getElementById('tab-beginner').classList.replace('border-transparent', 'border-purple-500');
+                document.getElementById('tab-expert').classList.replace('text-purple-400', 'text-gray-500');
+                document.getElementById('tab-expert').classList.replace('border-purple-500', 'border-transparent');
+            }
+        };
+
+        // REAL NEOX TERMINAL WEBSOCKET BRIDGE
+        window.neoxTermInitialized = false; window.neoxWs = null;
+        
+        window.initNeoxTerminal = function() {
+            try {
+                if(!window.neoxTermInstance) {
+                    const term = new Terminal({ theme: { background: '#000000', foreground: '#3b82f6', cursor: '#3b82f6' }, fontFamily: '"Fira Code", monospace', fontSize: 13, cols: 50, rows: 20, cursorBlink: true, scrollback: 5000 });
+                    document.getElementById('neox-terminal-container').innerHTML = ''; 
+                    term.open(document.getElementById('neox-terminal-container')); 
+                    window.neoxTermInstance = term;
+                    
+                    term.write("\x1b[36m[SYS] Securing Real-Time WebSocket Tunnel...\x1b[0m\r\n");
+
+                    // Real connection to your locked main.py endpoint
+                    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                    if (window.neoxWs) window.neoxWs.close();
+                    
+                    window.neoxWs = new WebSocket(`${protocol}//${window.location.host}/ws/terminal?user_id=user_001`);
+                    
+                    let currentLine = "";
+                    window.neoxTermInstance.onData(e => {
+                        if (e === '\r') { 
+                            window.neoxTermInstance.write('\r\n'); 
+                            window.neoxWs.send(currentLine); 
+                            currentLine = ""; 
+                        } 
+                        else if (e === '\x7F') { 
+                            if (currentLine.length > 0) { 
+                                currentLine = currentLine.substr(0, currentLine.length - 1); 
+                                window.neoxTermInstance.write('\b \b'); 
+                            } 
+                        } 
+                        else { 
+                            currentLine += e; 
+                            window.neoxTermInstance.write(e); 
+                        }
+                    });
+
+                    window.neoxWs.onmessage = (e) => { 
+                        window.neoxTermInstance.write(e.data); 
+                    };
+
+                    window.neoxWs.onerror = () => {
+                        window.neoxTermInstance.write("\r\n\x1b[31m[ERROR] Datacenter Connection Interrupted. Waiting for engine to warm up...\x1b[0m\r\n");
+                    }
+                }
+            } catch(e) {}
+        };
+
+        window.openVisualFolder = function(folderName) {
+            if(!window.neoxWs || window.neoxWs.readyState !== WebSocket.OPEN) return;
+            // Send actual cd and ls commands through the WebSocket to the backend
+            window.neoxWs.send(`cd /root/${folderName} && ls -la`);
+        };
+
+        window.activeModel = 'veo_3'; window.activeCost = 0.25;
+        window.selectModel = function(modelId, cost) {
+            window.activeModel = modelId; window.activeCost = cost;
+            document.querySelectorAll('.model-card').forEach(card => {
+                card.classList.remove('border-purple-500', 'bg-purple-500/10');
+                card.classList.add('border-gray-700', 'bg-black/50');
+            });
+            event.currentTarget.classList.remove('border-gray-700', 'bg-black/50');
+            event.currentTarget.classList.add('border-purple-500', 'bg-purple-500/10');
+            document.getElementById('btnPriceDisplay').innerText = `$${cost.toFixed(2)}`;
+        };
+    </script>
+</head>
+<body class="min-h-screen flex flex-col items-center relative overflow-x-hidden">
+    
+    <div id="sidebarOverlay" class="fixed inset-0 bg-black/80 z-40 hidden" onclick="window.toggleMenu()"></div>
+    <div id="sidebar" class="fixed inset-y-0 left-0 w-72 bg-[#09090b] border-r border-gray-800 transform -translate-x-full transition-transform duration-300 z-50 flex flex-col">
+        <div class="p-6 border-b border-gray-800 flex justify-between shrink-0">
+            <h2 class="text-xl font-bold tracking-tighter">NEO <span class="text-blue-500">LAB</span></h2>
+            <button onclick="window.toggleMenu()" class="text-gray-400"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+        </div>
+        <div class="p-6 flex-1 overflow-y-auto flex flex-col gap-6">
+            <div class="bg-white/5 rounded-xl p-4 border border-white/10 shrink-0">
+                <p class="text-xs text-gray-400 uppercase tracking-wider mb-1">ID: user_001</p>
+                <p class="text-3xl font-bold text-green-400" id="walletBalance">$0.00</p>
+            </div>
+            
+            <div class="border-t border-gray-800 pt-4 mt-2">
+                <p class="text-[10px] text-gray-500 font-bold uppercase tracking-widest mb-3">System Core</p>
+                <button onclick="window.switchView('view-neox')" class="w-full flex items-center gap-3 text-left p-3 rounded-xl hover:bg-white/5 transition-colors group">
+                    <div class="w-8 h-8 rounded-lg bg-blue-500/10 border border-blue-500/30 flex items-center justify-center text-blue-400 group-hover:bg-blue-500 group-hover:text-white transition-all"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg></div>
+                    <div>
+                        <h4 class="font-bold text-white text-sm">NEOX</h4>
+                        <p class="text-[10px] text-gray-400">Master Linux OS</p>
+                    </div>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="w-full max-w-md flex flex-col px-4 z-10 h-screen">
+        <header class="w-full flex justify-between items-center py-4 border-b border-white/5 mb-4 shrink-0">
+            <div class="flex items-center gap-3">
+                <button onclick="window.toggleMenu()" class="text-white hover:text-gray-300 p-2"><svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg></button>
+                <h1 class="text-xl font-bold tracking-tighter text-white">NEO <span class="text-blue-500">LAB</span></h1>
+            </div>
+            <div class="glass-panel px-3 py-1.5 rounded-full flex items-center gap-2 border-green-500/30">
+                <div class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+                <span class="text-sm font-bold text-green-400" id="headerBalance">$0.00</span>
+            </div>
+        </header>
+
+        <main class="w-full flex-1 flex flex-col gap-6 mt-2 pb-8 overflow-y-auto">
+            
+            <div id="view-home" class="w-full flex flex-col gap-5">
+                <div class="text-center mt-1 mb-1">
+                    <h2 class="text-sm font-bold text-gray-400 uppercase tracking-widest mb-1">NEO Ecosystem</h2>
+                    <p class="text-2xl font-black bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-green-400 tracking-tight">EXPERIENCE THE DIFFERENCE</p>
+                </div>
+                
+                <div onclick="window.switchView('view-neox')" class="app-card glass-panel rounded-2xl p-4 cursor-pointer border border-blue-500/40 shadow-[0_0_20px_rgba(59,130,246,0.15)] relative overflow-hidden">
+                    <div class="absolute inset-0 bg-[linear-gradient(transparent_50%,rgba(59,130,246,0.05)_50%)] bg-[length:100%_4px] pointer-events-none opacity-50"></div>
+                    <div class="flex items-center justify-between mb-1 z-10 relative">
+                        <div class="flex items-center gap-3"><h3 class="text-lg font-bold text-blue-400 uppercase tracking-wider">NEOX System Core</h3></div>
+                        <div class="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></div>
+                    </div>
+                    <p class="text-sm text-gray-300 z-10 relative">Master Linux Environment. Your permanent, 24/7 root access to the central cloud brain.</p>
+                </div>
+
+                <div onclick="window.switchView('view-video')" class="app-card glass-panel rounded-2xl p-4 cursor-pointer border-l-4 border-l-purple-500">
+                    <div class="flex items-center gap-3 mb-1"><h3 class="text-lg font-bold">VIDEO LAB (STUDIO)</h3></div>
+                    <p class="text-sm text-gray-400">Universal Model Hub. Direct your own sequences.</p>
+                </div>
+                
+                <div onclick="window.switchView('view-gpu')" class="app-card glass-panel rounded-2xl p-4 cursor-pointer border-l-4 border-l-green-500">
+                    <div class="flex items-center gap-3 mb-1"><h3 class="text-lg font-bold">DEPLOY A GPU</h3></div>
+                    <p class="text-sm text-gray-400">Start developing your own model using raw GPU power.</p>
+                </div>
+                
+                <div onclick="window.switchView('view-vault')" class="app-card glass-panel rounded-2xl p-4 cursor-pointer border-l-4 border-l-yellow-500">
+                    <div class="flex items-center gap-3 mb-1"><h3 class="text-lg font-bold">DATA VAULT</h3></div>
+                    <p class="text-sm text-gray-400">Manage external cloud mounts and persistent NEO Storage.</p>
+                </div>
+            </div>
+
+            <div id="view-neox" class="w-full flex flex-col gap-3 hidden h-[85vh]">
+                <div class="flex justify-between items-center shrink-0 mb-1">
+                    <button onclick="window.switchView('view-home')" class="flex items-center gap-1 text-gray-400 hover:text-white text-sm"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg> Dashboard</button>
+                    <span class="text-[10px] font-mono text-blue-400 bg-blue-500/10 px-2 py-1 rounded border border-blue-500/30">ID: root@neox-cloud</span>
+                </div>
+                
+                <div class="glass-panel rounded-xl flex flex-col border border-gray-800 p-3 shrink-0">
+                    <h3 class="text-[10px] text-gray-500 font-bold uppercase tracking-widest mb-2">Visual Vault (/root)</h3>
+                    <div class="flex gap-2 overflow-x-auto pb-1">
+                        <div onclick="window.openVisualFolder('models')" class="folder-item min-w-[80px] bg-black/50 border border-gray-700 rounded-lg p-2 flex flex-col items-center justify-center gap-1">
+                            <svg class="w-6 h-6 text-yellow-500" fill="currentColor" viewBox="0 0 20 20"><path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"></path></svg>
+                            <span class="text-[10px] text-gray-300">/models</span>
+                        </div>
+                        <div onclick="window.openVisualFolder('renders')" class="folder-item min-w-[80px] bg-black/50 border border-gray-700 rounded-lg p-2 flex flex-col items-center justify-center gap-1">
+                            <svg class="w-6 h-6 text-purple-500" fill="currentColor" viewBox="0 0 20 20"><path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"></path></svg>
+                            <span class="text-[10px] text-gray-300">/renders</span>
+                        </div>
+                        <div onclick="window.openVisualFolder('scripts')" class="folder-item min-w-[80px] bg-black/50 border border-gray-700 rounded-lg p-2 flex flex-col items-center justify-center gap-1">
+                            <svg class="w-6 h-6 text-green-500" fill="currentColor" viewBox="0 0 20 20"><path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"></path></svg>
+                            <span class="text-[10px] text-gray-300">/scripts</span>
+                        </div>
+                        <div class="folder-item min-w-[80px] bg-blue-900/20 border border-blue-500/30 rounded-lg p-2 flex flex-col items-center justify-center gap-1 border-dashed">
+                            <svg class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                            <span class="text-[10px] text-blue-400">Upload</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="glass-panel rounded-xl flex flex-col border border-blue-500/40 shadow-[0_0_15px_rgba(59,130,246,0.15)] flex-1 overflow-hidden">
+                    <div class="bg-black px-4 py-2 border-b border-blue-500/30 flex justify-between items-center relative overflow-hidden shrink-0">
+                        <div class="flex flex-col z-10">
+                            <span class="text-[9px] text-blue-500/70 font-mono uppercase">ACTIVE METAL</span>
+                            <span id="neoxGpuDisplay" class="text-xs font-bold text-blue-400 font-mono uppercase">CLOUD BROKER</span>
+                        </div>
+                        <div class="flex gap-2 z-10">
+                            <div class="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></div>
+                            <div class="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse delay-75"></div>
+                            <div class="w-1.5 h-1.5 rounded-full bg-blue-300 animate-pulse delay-150"></div>
+                        </div>
+                    </div>
+                    <div id="neox-terminal-container" class="w-full bg-[#000000] p-2 flex-1 relative overflow-hidden">
+                        <p class="text-gray-500 font-mono text-xs">Waiting for connection...</p>
+                    </div>
+                </div>
+            </div>
+
+            <div id="view-gpu" class="w-full flex flex-col gap-4 hidden">
+                <button onclick="window.gpuWizardBack()" class="flex items-center gap-2 text-gray-400 hover:text-white"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg> Back</button>
+                
+                <div class="glass-panel rounded-2xl p-6 flex flex-col gap-4">
+                    <div id="wizard-step-1">
+                        <p class="text-sm text-gray-400 mb-4">What GPU VRAM do you need?</p>
+                        <input type="number" id="vramInput" value="24" class="w-full bg-black/50 border border-gray-700 rounded-lg p-3 text-white mb-4 text-center text-3xl font-bold">
+                        <button onclick="window.processVramAndNext()" class="w-full bg-blue-600 font-bold py-3 rounded-xl transition-all active:scale-95">Next Step</button>
+                    </div>
+
+                    <div id="wizard-step-2" class="hidden">
+                        <p class="text-sm text-gray-400 mb-4">Select the architecture:</p>
+                        <div id="gpu-options-container" class="flex flex-col gap-3 mb-4 overflow-y-auto max-h-[50vh] pr-1"></div>
+                    </div>
+
+                    <div id="wizard-step-3" class="hidden">
+                        <p class="text-sm text-gray-400 mb-4">Storage allocation (GB):</p>
+                        <input type="number" id="storageInput" value="100" class="w-full bg-black/50 border border-gray-700 rounded-lg p-3 text-white mb-4 text-center text-2xl font-bold">
+                        <button onclick="window.nextWizard(4)" class="w-full bg-blue-600 font-bold py-3 rounded-xl">Hunt Marketplace</button>
+                    </div>
+
+                    <div id="wizard-step-4" class="hidden">
+                        <div class="flex justify-between items-center mb-4">
+                            <h3 class="text-sm font-bold text-gray-400">GLOBAL NODES</h3>
+                            <div class="text-green-500 text-xs px-2 py-1 flex items-center gap-2"><div class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div><span id="market-refresh-timer">SCANNING...</span></div>
+                        </div>
+                        <div id="host-options-container" class="flex flex-col gap-3"></div>
+                    </div>
+
+                    <div id="wizard-step-5" class="hidden text-center">
+                        <h2 class="text-2xl font-bold mb-2">Workspace Mode</h2>
+                        <button onclick="window.executeDeploy('expert')" class="w-full border border-gray-600 bg-transparent hover:bg-white/5 font-bold py-4 rounded-xl mb-4 transition-all">I am an Expert (Raw Terminal)</button>
+                        <button onclick="window.executeDeploy('beginner')" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-xl transition-all shadow-[0_0_15px_rgba(37,99,235,0.4)]">
+                            I am a Beginner <br><span class="text-xs text-blue-200 font-normal">(NEO Assistant +$0.03/hr)</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="view-video" class="w-full flex flex-col gap-4 hidden h-full">
+                <button onclick="window.switchView('view-home')" class="flex items-center gap-2 text-gray-400 hover:text-white mb-2 shrink-0"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg> Back to Hub</button>
+                <div class="flex w-full border-b border-gray-800 shrink-0">
+                    <button id="tab-expert" onclick="window.switchVideoMode('expert')" class="flex-1 pb-3 text-sm font-bold text-purple-400 border-b-2 border-purple-500 transition-colors">EXPERT STUDIO</button>
+                    <button id="tab-beginner" onclick="window.switchVideoMode('beginner')" class="flex-1 pb-3 text-sm font-bold text-gray-500 border-b-2 border-transparent transition-colors">NEO ASSISTANT</button>
+                </div>
+                <div id="video-expert-ui" class="flex-1 flex flex-col gap-4 mt-2 overflow-y-auto relative">
+                    <div class="glass-panel rounded-xl p-4">
+                        <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Select Engine</h3>
+                        <div class="grid grid-cols-2 gap-2" id="modelSelectorGrid">
+                            <div onclick="window.selectModel('veo_3', 0.25)" class="model-card border border-purple-500 bg-purple-500/10 p-3 rounded-lg cursor-pointer"><h4 class="font-bold text-white text-sm">Google Veo</h4><span class="text-xs text-purple-400">$0.25 / 5s</span></div>
+                            <div onclick="window.selectModel('hailuo_minimax', 0.20)" class="model-card border border-gray-700 bg-black/50 p-3 rounded-lg cursor-pointer"><h4 class="font-bold text-white text-sm">Hailuo</h4><span class="text-xs text-gray-400">$0.20 / 5s</span></div>
+                            <div onclick="window.selectModel('gen_3_alpha', 0.40)" class="model-card border border-gray-700 bg-black/50 p-3 rounded-lg cursor-pointer"><h4 class="font-bold text-white text-sm">Gen-3 Alpha</h4><span class="text-xs text-gray-400">$0.40 / 5s</span></div>
+                            <div onclick="window.selectModel('kling_v2', 0.28)" class="model-card border border-gray-700 bg-black/50 p-3 rounded-lg cursor-pointer"><h4 class="font-bold text-white text-sm">Kling 2.0</h4><span class="text-xs text-gray-400">$0.28 / 5s</span></div>
+                            <div onclick="window.selectModel('sora', 0.50)" class="model-card border border-gray-700 bg-black/50 p-3 rounded-lg cursor-pointer"><h4 class="font-bold text-white text-sm">OpenAI Sora</h4><span class="text-xs text-gray-400">$0.50 / 5s</span></div>
+                            <div onclick="window.selectModel('nova_reel', 0.30)" class="model-card border border-gray-700 bg-black/50 p-3 rounded-lg cursor-pointer"><h4 class="font-bold text-white text-sm">Nova Reel</h4><span class="text-xs text-gray-400">$0.30 / 5s</span></div>
+                        </div>
+                    </div>
+                    <div class="glass-panel rounded-xl p-4 relative">
+                        <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Scene Director</h3>
+                        <textarea id="expertPrompt" rows="4" class="w-full bg-black/50 border border-gray-700 rounded-lg p-3 text-white focus:border-purple-500 text-sm mb-2" placeholder="Describe the sequence..."></textarea>
+                        <button class="w-full bg-purple-600 hover:bg-purple-500 font-bold py-3 rounded-xl transition-all active:scale-95 shadow-[0_0_15px_rgba(147,51,234,0.3)]">Render Sequence (<span id="btnPriceDisplay">$0.25</span>)</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="view-vault" class="w-full flex flex-col gap-4 hidden">
+                <button onclick="window.switchView('view-home')" class="flex items-center gap-2 text-gray-400 hover:text-white mb-2"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg> Back to Hub</button>
+                <div class="glass-panel rounded-2xl p-6 flex flex-col gap-4">
+                    <h2 class="text-xl font-bold">Data Vault</h2>
+                    <div class="bg-black/50 p-4 rounded-xl border border-gray-700">
+                        <h3 class="text-sm font-bold text-white mb-2">External Integrations</h3>
+                        <button class="w-full bg-white text-gray-900 font-bold py-2 rounded-lg mb-2 text-sm">Link Google Drive</button>
+                        <button class="w-full bg-blue-500 text-white font-bold py-2 rounded-lg text-sm">Link Dropbox</button>
+                    </div>
+                </div>
+            </div>
+
+        </main>
+    </div>
+</body>
+</html>
