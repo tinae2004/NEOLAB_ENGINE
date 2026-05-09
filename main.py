@@ -6,6 +6,7 @@ import asyncio
 import random
 import json
 import subprocess
+import asyncssh  # <-- Added for the real NEOX SSH Tunnel
 from fastapi import FastAPI, BackgroundTasks, HTTPException, Depends, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
@@ -14,15 +15,21 @@ from dotenv import load_dotenv
 
 from database import SessionLocal, engine, UserDB, InstanceDB, get_db
 
-print("⚙️ Checking/Installing Vast.ai CLI for Termux environment...")
-subprocess.run([sys.executable, "-m", "pip", "install", "vastai"], capture_output=True)
+print("⚙️ Checking/Installing CLI tools for Datacenter connection...")
+subprocess.run([sys.executable, "-m", "pip", "install", "vastai", "asyncssh"], capture_output=True)
 
 load_dotenv()
 app = FastAPI(title="NEO LAB Engine", version="7.0.0 (Realtime Datacenter Edition)")
 
-VAST_API_KEY = "f46431563a4e7e004f6fb6711673353104218571a7d3aabf37ecf53d276ecaa0"
+# =========================================================
+# 1. ARM THE ENGINE (HYBRID AUTH)
+# =========================================================
+# Tries the Render Environment Vault first, falls back to hardcoded if needed
+VAST_API_KEY = os.environ.get("VAST_API_KEY", "f46431563a4e7e004f6fb6711673353104218571a7d3aabf37ecf53d276ecaa0")
 RUNPOD_API_KEY = "user_38PrKsAvO0xVsYSazL25z8qk26h"
-subprocess.run(f"{sys.executable} -m vastai set api-key {VAST_API_KEY}", shell=True, capture_output=True)
+
+# Log the master server into Vast.ai
+subprocess.run([sys.executable, "-m", "vastai", "set", "api-key", VAST_API_KEY], capture_output=True)
 
 video_jobs = {}
 VIDEO_MODELS = {
@@ -111,7 +118,6 @@ async def scan_market(vram: float, storage: float = 100.0, gpu_name: str = None)
 
         try:
             vast_url = "https://console.vast.ai/api/v0/bundles/"
-            # PERFECTED SEARCH: Broad API pull, strictly filtered in Python to guarantee 0 missed models
             query = {"rentable": {"eq": True}, "disk_space": {"gte": storage}, "num_gpus": {"eq": 1}}
             headers = {"Authorization": f"Bearer {VAST_API_KEY}"}
             
@@ -125,12 +131,10 @@ async def scan_market(vram: float, storage: float = 100.0, gpu_name: str = None)
                 if total_vram_gb >= vram and o.get('reliability', 0) >= 0.90:
                     if core_keywords:
                         actual_gpu = o.get('gpu_name', '').replace('_', ' ').upper()
-                        # Strict Core ID Match (Pulls 3060, Ti, etc. seamlessly)
                         if not all(kw in actual_gpu for kw in core_keywords):
                             continue 
                     valid_offers.append(o)
 
-            # Sort cheapest first
             vast_offers = sorted(valid_offers, key=lambda x: x.get('dph_total', x.get('dph', 999)))
             
             for offer in vast_offers[:5]: 
@@ -155,31 +159,6 @@ async def scan_market(vram: float, storage: float = 100.0, gpu_name: str = None)
                 })
         except Exception as ve: print(ve)
 
-        try:
-            rp_url = f"https://api.runpod.io/graphql?api_key={RUNPOD_API_KEY}"
-            query = "{ gpuTypes { id displayName memoryInGb lowestPrice(input: {gpuCount: 1}) { minimumPrice } } }"
-            rp_response = requests.post(rp_url, json={"query": query}, headers={"Content-Type": "application/json"}, timeout=10)
-            rp_data = rp_response.json()
-            
-            if "data" in rp_data and "gpuTypes" in rp_data["data"]:
-                for gpu in rp_data["data"]["gpuTypes"]:
-                    if gpu.get("memoryInGb", 0) >= vram:
-                        if core_keywords:
-                            actual = gpu.get("displayName", "").upper()
-                            if not all(kw in actual for kw in core_keywords):
-                                continue
-                        lowest = gpu.get("lowestPrice")
-                        if lowest and lowest.get("minimumPrice"):
-                            live_nodes.append({
-                                "id": f"runpod_{gpu.get('id')}",
-                                "host": f"RunPod Secure (1x {gpu.get('displayName').replace('NVIDIA ', '')})",
-                                "price": round(lowest.get("minimumPrice"), 3),
-                                "network": "10.0 GB/s",
-                                "tag": "RUNPOD ENTERPRISE",
-                                "score": "100%"
-                            })
-        except Exception as rp_e: pass
-
         if not live_nodes:
             raise Exception("No single-metal nodes matched your strict requirements.")
             
@@ -192,6 +171,9 @@ async def scan_market(vram: float, storage: float = 100.0, gpu_name: str = None)
     except Exception as e:
         return {"status": "success", "nodes": [{"id": "error", "host": "Global Market Dry", "price": 0.00, "network": "0 MB/s", "tag": "WAITING", "score": "0%"}]}
 
+# =========================================================
+# 2. REAL DEPLOYMENT ENGINE (UPGRADED)
+# =========================================================
 @app.post("/api/v1/workspace/deploy")
 async def trigger_real_deployment(request: DeployRequest, db: Session = Depends(get_db)):
     user = db.query(UserDB).filter(UserDB.user_id == request.user_id).first()
@@ -203,15 +185,25 @@ async def trigger_real_deployment(request: DeployRequest, db: Session = Depends(
     if "runpod" in str(request.offer_id):
         raise HTTPException(status_code=400, detail="RunPod API boot sequence not yet configured. Select a Vast.ai node.")
         
+    # The true deploy command
+    cmd = [
+        sys.executable, "-m", "vastai", "create", "instance", str(request.offer_id),
+        "--image", "nvidia/cuda:12.1.1-devel-ubuntu22.04",
+        "--disk", str(request.storage),
+        "--raw"
+    ]
+
     try:
-        ignite_cmd = f"{sys.executable} -m vastai create instance {request.offer_id} --image nvidia/cuda:12.1.1-devel-ubuntu22.04 --disk {request.storage} --raw"
-        res = subprocess.run(ignite_cmd, shell=True, capture_output=True, text=True)
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
         
         if res.returncode != 0:
-            raise Exception("Datacenter rejected the boot command.")
+            raise HTTPException(status_code=500, detail=f"Datacenter rejected: {res.stderr or res.stdout}")
             
         vast_data = json.loads(res.stdout)
         new_instance_id = vast_data.get("new_contract")
+        
+        if not new_instance_id:
+            raise HTTPException(status_code=500, detail=f"Unexpected Vast response: {res.stdout}")
         
         user.balance -= deposit
         old = db.query(InstanceDB).filter(InstanceDB.user_id == user.user_id).first()
@@ -223,25 +215,39 @@ async def trigger_real_deployment(request: DeployRequest, db: Session = Depends(
         db.refresh(user)
         
         return {"status": "booting", "new_balance": round(user.balance, 2), "instance_id": new_instance_id}
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="Datacenter took too long to respond.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# REAL-TIME POLLING ENDPOINT
+# =========================================================
+# 3. REAL STATUS POLLING (UPGRADED)
+# =========================================================
 @app.get("/api/v1/workspace/status/{instance_id}")
 async def get_instance_status(instance_id: str):
     try:
-        cmd = f"{sys.executable} -m vastai show instances --raw"
-        res = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        cmd = [sys.executable, "-m", "vastai", "show", "instances", "--raw"]
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        
         if res.returncode == 0:
             instances = json.loads(res.stdout)
             for inst in instances:
                 if str(inst.get("id")) == str(instance_id):
                     status = inst.get("actual_status", "provisioning")
+                    
+                    # Store IP for the Websocket if running
+                    if status == "running":
+                        os.environ[f"SSH_HOST_{instance_id}"] = inst.get("ssh_host", "")
+                        os.environ[f"SSH_PORT_{instance_id}"] = str(inst.get("ssh_port", ""))
+                        
                     return {"status": status}
         return {"status": "provisioning"}
     except:
         return {"status": "provisioning"}
 
+# =========================================================
+# 4. REAL NEOX SSH TERMINAL BRIDGE
+# =========================================================
 @app.websocket("/ws/terminal")
 async def websocket_terminal(websocket: WebSocket, user_id: str = "user_001"):
     await websocket.accept()
@@ -250,44 +256,60 @@ async def websocket_terminal(websocket: WebSocket, user_id: str = "user_001"):
     
     if not instance or not instance.status.startswith("running"):
         await websocket.send_text("\r\n\033[5;31m[!] TERMINAL NOT ACTIVE - NO GPU DEPLOYED\033[0m\r\n> ")
-        mode = "inactive"
-    else:
-        mode = instance.status.split("_")[1]
-        if mode == "beginner":
-            await websocket.send_text("\r\n\033[1;34m[NEO LAB OS v6.0]\033[0m Workspace Verified.\r\n\033[35m[NEO ASSISTANT] Hello! I am your dedicated AI DevOps agent.\033[0m\r\nneo-assistant> ")
-        else:
-            await websocket.send_text("\r\n\033[1;32mUbuntu 22.04 LTS (GNU/Linux 5.15.0-101-generic x86_64)\033[0m\r\n\r\n * Documentation:  https://help.ubuntu.com\r\n * Management:     https://landscape.canonical.com\r\n * Support:        https://ubuntu.com/advantage\r\n\r\nroot@neo-metal:~# ")
-            
-    try:
-        while True:
-            data = await websocket.receive_text()
-            cmd = data.strip().lower()
-            instance = db.query(InstanceDB).filter(InstanceDB.user_id == user_id).first()
-            
-            prompt = "neo-assistant> " if mode == "beginner" else "root@neo-metal:~# "
-            
-            if cmd == "clear": 
-                await websocket.send_text(f"\033[2J\033[H{prompt}")
-            elif mode == "beginner" and ("train" in cmd or "fine-tune" in cmd):
-                await websocket.send_text("\r\n\033[35m[NEO] Understood. Initializing secure training pipeline...\033[0m\r\n")
-                await asyncio.sleep(1)
-                await websocket.send_text("\033[36m[*] pip install transformers torch unsloth\033[0m\r\n")
-                await asyncio.sleep(1)
-                await websocket.send_text("\033[32m[SUCCESS] Environment ready! You can now start feeding your dataset.\033[0m\r\nneo-assistant> ")
-            elif cmd == "pause":
-                if instance and instance.status.startswith("running"):
-                    instance.status = "paused"
-                    mode = "inactive"
-                    db.commit()
-                    await websocket.send_text("\r\n\033[33m[SYS] GPU Terminated. Data Vault securely packed.\033[0m\r\n> ")
+        db.close()
+        return
+
+    mode = instance.status.split("_")[1]
+    instance_id = instance.vast_instance_id
+    ssh_host = os.environ.get(f"SSH_HOST_{instance_id}")
+    ssh_port = os.environ.get(f"SSH_PORT_{instance_id}")
+
+    db.close()
+
+    if mode == "beginner":
+        # Beginner Mode: Keep the AI Assistant Mock Interface
+        await websocket.send_text("\r\n\033[1;34m[NEO LAB OS v6.0]\033[0m Workspace Verified.\r\n\033[35m[NEO ASSISTANT] Hello! I am your dedicated AI DevOps agent.\033[0m\r\nneo-assistant> ")
+        try:
+            while True:
+                data = await websocket.receive_text()
+                cmd = data.strip().lower()
+                if cmd == "clear": 
+                    await websocket.send_text(f"\033[2J\033[Hneo-assistant> ")
+                elif "train" in cmd or "fine-tune" in cmd:
+                    await websocket.send_text("\r\n\033[35m[NEO] Understood. Initializing secure training pipeline...\033[0m\r\n")
+                    await asyncio.sleep(1)
+                    await websocket.send_text("\033[36m[*] pip install transformers torch unsloth\033[0m\r\n")
+                    await asyncio.sleep(1)
+                    await websocket.send_text("\033[32m[SUCCESS] Environment ready! You can now start feeding your dataset.\033[0m\r\nneo-assistant> ")
                 else:
-                    await websocket.send_text("\r\n\033[31m[ERROR] No active running GPU to pause.\033[0m\r\n> ")
-            elif cmd != "": 
-                await websocket.send_text(f"\r\nbash: {cmd}: command not found\r\n{prompt}")
-            else: 
-                await websocket.send_text(prompt)
-    except WebSocketDisconnect: pass
-    finally: db.close()
+                    await websocket.send_text(f"\r\nI am processing command: {cmd}\r\nneo-assistant> ")
+        except WebSocketDisconnect:
+            pass
+
+    else:
+        # Expert Mode: REAL SSH TUNNEL TO VAST.AI
+        if not ssh_host or not ssh_port:
+            await websocket.send_text("\r\n\033[33m[SYS] Waiting for Datacenter network ports to open...\033[0m\r\n")
+            return
+
+        try:
+            async with asyncssh.connect(ssh_host, port=int(ssh_port), username="root", known_hosts=None) as conn:
+                async with conn.create_process(term_type='xterm-256color', term_size=(50, 20)) as process:
+                    
+                    async def read_from_ssh():
+                        while True:
+                            data = await process.stdout.read(1024)
+                            if not data: break
+                            await websocket.send_text(data)
+
+                    async def write_to_ssh():
+                        while True:
+                            user_input = await websocket.receive_text()
+                            process.stdin.write(user_input)
+
+                    await asyncio.gather(read_from_ssh(), write_to_ssh())
+        except Exception as e:
+            await websocket.send_text(f"\r\n\033[31m[ERROR] Datacenter Connection Interrupted: Make sure your Master SSH Key is uploaded to Vast.ai!\033[0m\r\n")
 
 @app.post("/api/v1/billing/claim-voucher")
 async def claim_voucher(request: VoucherClaim, db: Session = Depends(get_db)):
