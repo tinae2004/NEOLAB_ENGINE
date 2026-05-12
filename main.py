@@ -333,4 +333,4 @@ async def websocket_terminal(websocket: WebSocket, user_id: str = "user_001"):
 # =========================================================
 async def process_video_lro(job_id: str, model_name: str, mode: str):
     await asyncio.sleep(2)
-    video_jobs[job_id]["status"] = f"allocating_{model_name}_no
+    video_jobs[job_id]["status"] = f"allocating_{model_name}_nodes"
