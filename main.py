@@ -13,7 +13,7 @@ import base64
 # =========================================================
 print("⚙️ Checking/Installing CLI tools for Datacenter connection...")
 # This runs FIRST, before Python tries to import them!
-subprocess.run([sys.executable, "-m", "pip", "install", "vastai", "asyncssh", "python-dotenv", "pydantic", "sqlalchemy"], capture_output=True)
+subprocess.run([sys.executable, "-m", "pip", "install", "vastai", "asyncssh", "python-dotenv", "pydantic", "sqlalchemy", "mistralai"], capture_output=True)
 
 # Now we can safely import asyncssh without crashing Render!
 import asyncssh
