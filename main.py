@@ -335,4 +335,8 @@ async def process_video_lro(job_id: str, model_name: str, mode: str):
     video_jobs[job_id]["status"] = f"allocating_{model_name}_nodes"
     await asyncio.sleep(4)
     video_jobs[job_id]["status"] = "rendering_frames"
-    await asyncio.
+    await asyncio.sleep(3)
+    video_jobs[job_id]["status"] = "auto_stitching_and_grading" if mode == "beginner" else "applying_studio_cuts"
+    await asyncio.sleep(3)
+    video_jobs[job_id]["status"] = "completed"
+    video_jobs[job_id]["url"] = f"https://neolab.cloud/vault/render_{job_id}.mp4"
