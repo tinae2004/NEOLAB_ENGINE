@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>NEO LAB</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm/css/xterm.css" />
+    <script src="https://cdn.jsdelivr.net/npm/xterm/lib/xterm.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit/lib/xterm-addon-fit.js"></script>
+
+    <style>
+        body { background-color: #09090b; color: #fafafa; font-family: -apple-system, sans-serif; }
+        .glass-panel { background: rgba(255, 255, 255, 0.05); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); }
+        .app-card { transition: all 0.2s ease-in-out; }
+        .app-card:active { transform: scale(0.98); }
+        ::-webkit-scrollbar { width: 0px; background: transparent; }
+        
+        /* Termux Extra Keys Styling */
+        #extra-keys { touch-action: pan-x; scrollbar-width: none; display: flex; overflow-x: auto; background: #0a0a0a; padding: 8px 5px; border-top: 1px solid #1a4d1a; }
+        .ekey { background: #151515; color: #00ffcc; border: 1px solid #004033; border-radius: 4px; padding: 8px 18px; margin-right: 6px; font-family: monospace; font-size: 15px; flex-shrink: 0; }
+        .ekey:active { background: #00ffcc; color: #000; }
+        .status-pulse { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background-color: #00ff00; margin-right: 8px; animation: pulse 2s infinite; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+
+    <header class="p-4 border-b border-gray-800 flex justify-between items-center glass-panel">
+        <div class="flex items-center gap-3">
+            <button onclick="toggleSidebar()" class="text-gray-400">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+            </button>
+            <h1 class="font-bold text-xl tracking-tighter text-green-400">NEO LAB</h1>
+        </div>
+        <div class="flex items-center gap-4">
+            <div class="text-right">
+                <p class="text-[10px] text-gray-500 uppercase">Balance</p>
+                <p class="font-bold text-green-400" id="balanceDisplay">$12.50</p>
+            </div>
+            <div class="w-10 h-10 rounded-full bg-gray-800 border border-gray-700"></div>
+        </div>
+    </header>
+
+    <main class="flex flex-1 overflow-hidden">
+        
+        <aside id="sidebar" class="w-64 border-r border-gray-800 p-4 hidden md:flex flex-col gap-2 bg-[#09090b]">
+            <button onclick="switchView('view-home')" class="w-full text-left p-3 rounded-xl hover:bg-gray-800 transition-all">💻 Workspace</button>
+            <button onclick="switchView('view-video')" class="w-full text-left p-3 rounded-xl hover:bg-gray-800 transition-all">🎬 Video Lab</button>
+            <button onclick="switchView('view-vault')" class="w-full text-left p-3 rounded-xl hover:bg-gray-800 transition-all">🗄️ Data Vault</button>
+        </aside>
+
+        <div class="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
+            
+            <div id="view-home" class="flex flex-col gap-4 h-full">
+                
+                <div class="glass-panel rounded-2xl p-4 flex justify-between items-center">
+                    <div>
+                        <h2 class="text-xs text-gray-500 uppercase font-bold">Current Deployment</h2>
+                        <p class="text-lg font-bold" id="gpuModel">NVIDIA RTX 4090</p>
+                    </div>
+                    <button onclick="connectTerminal()" class="bg-green-600 px-4 py-2 rounded-lg font-bold text-sm">Connect Route</button>
+                </div>
+
+                <div class="flex-1 glass-panel rounded-2xl overflow-hidden flex flex-col border border-gray-800 shadow-2xl">
+                    <div class="bg-black/80 px-4 py-2 border-b border-gray-800 flex justify-between items-center">
+                        <div class="text-[10px] font-mono text-green-500 flex items-center">
+                            <span class="status-pulse" id="net-pulse"></span> NEOX_PTY_ENGINE // ROOT
+                        </div>
+                        <div id="dl-indicator" class="text-[10px] font-mono text-cyan-400">NET: STANDBY</div>
+                    </div>
+                    
+                    <div id="terminal-container" class="flex-1 bg-[#030303] p-2"></div>
+
+                    <div id="extra-keys">
+                        <button class="ekey" onclick="sendSeq('\x1b')">ESC</button>
+                        <button class="ekey text-red-500 font-bold" onclick="sendSeq('\x03')">CTRL+C</button>
+                        <button class="ekey" onclick="sendSeq('\x09')">TAB</button>
+                        <button class="ekey" onclick="sendSeq('\x1b[A')">▲</button>
+                        <button class="ekey" onclick="sendSeq('\x1b[B')">▼</button>
+                        <button class="ekey" onclick="sendSeq('\x1b[D')">◀</button>
+                        <button class="ekey" onclick="sendSeq('\x1b[C')">▶</button>
+                        <button class="ekey" onclick="sendSeq('\x1b[H')">HOME</button>
+                        <button class="ekey" onclick="sendSeq('\x1b[F')">END</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="view-video" class="hidden flex flex-col gap-4">
+                <h2 class="text-xl font-bold">Video Lab</h2>
+                <div class="glass-panel p-6 rounded-2xl">
+                    <textarea class="w-full bg-transparent border border-gray-800 rounded-xl p-4 text-sm h-32 outline-none" placeholder="Enter prompt..."></textarea>
+                    <button class="w-full bg-purple-600 mt-4 py-3 rounded-xl font-bold">Generate Sequence</button>
+                </div>
+            </div>
+
+            <div id="view-vault" class="hidden flex flex-col gap-4">
+                <h2 class="text-xl font-bold">Data Vault</h2>
+                <div class="glass-panel p-6 rounded-2xl">
+                    <button class="w-full bg-white text-black py-3 rounded-xl font-bold">Sync Account Keys</button>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <script>
+        // UI Navigation
+        function switchView(id) {
+            ['view-home', 'view-video', 'view-vault'].forEach(v => document.getElementById(v).classList.add('hidden'));
+            document.getElementById(id).classList.remove('hidden');
+            if(window.innerWidth < 768) toggleSidebar();
+        }
+
+        function toggleSidebar() {
+            document.getElementById('sidebar').classList.toggle('hidden');
+        }
+
+        // --- THE REFINED TERMINAL LOGIC ---
+        const term = new Terminal({
+            cursorBlink: true,
+            cursorStyle: 'underline',
+            theme: { background: '#030303', foreground: '#00ffcc', cursor: '#00ff00' },
+            fontFamily: 'monospace',
+            fontSize: 14
+        });
+        
+        const fitAddon = new FitAddon.FitAddon();
+        term.loadAddon(fitAddon);
+        term.open(document.getElementById('terminal-container'));
+        fitAddon.fit();
+
+        window.addEventListener('resize', () => fitAddon.fit());
+
+        let ws;
+        const netPulse = document.getElementById('net-pulse');
+
+        // This sends every key you press on Android straight to the Linux route
+        term.onData(data => {
+            if (ws && ws.readyState === WebSocket.OPEN) ws.send(data);
+        });
+
+        // Termux Button Handler
+        function sendSeq(seq) {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(seq);
+                term.focus();
+            }
+        }
+
+        function connectTerminal() {
+            term.clear();
+            term.write('\r\n\x1b[33m[SYS] Booting Datacenter Route...\x1b[0m\r\n');
+            
+            const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+            const wsUrl = protocol + "//" + window.location.host + "/ws/terminal";
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => {
+                netPulse.style.backgroundColor = '#00ff00';
+                document.getElementById('dl-indicator').innerText = "NET: ACTIVE";
+                
+                // 🚨 THE CUSTOM '@' PROMPT INJECTION 🚨
+                const initScript = `
+                    export PS1='\\[\\e[1;32m\\]neo-root\\[\\e[0m\\]:\\[\\e[1;36m\\]\\w\\[\\e[0m\\] \\e[1;32m@\\e[0m '
+                    alias download='wget --show-progress'
+                    clear
+                `;
+                ws.send(initScript.trim().replace(/\n/g, '\r') + '\r');
+            };
+
+            ws.onmessage = (event) => {
+                term.write(event.data);
+            };
+
+            ws.onclose = () => {
+                netPulse.style.backgroundColor = '#ff0055';
+                document.getElementById('dl-indicator').innerText = "NET: OFFLINE";
+            };
+        }
+    </script>
+</body>
+</html>
