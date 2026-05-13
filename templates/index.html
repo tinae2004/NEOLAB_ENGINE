@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>NEO LAB - MASTER UI</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm/css/xterm.css" />
+    <script src="https://cdn.jsdelivr.net/npm/xterm/lib/xterm.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit/lib/xterm-addon-fit.js"></script>
+    
+    <style>
+        body { background-color: #050505; color: #fafafa; font-family: -apple-system, sans-serif; overflow: hidden; }
+        .glass-panel { background: rgba(20, 20, 20, 0.6); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.05); }
+        ::-webkit-scrollbar { width: 0px; background: transparent; }
+
+        /* Termux Extra Keys & Status Bar Styles */
+        #extra-keys { touch-action: pan-x; scrollbar-width: none; }
+        #extra-keys::-webkit-scrollbar { display: none; }
+        .ekey { background: #151515; color: #00ffcc; border: 1px solid #004033; border-radius: 4px; padding: 8px 18px; margin-right: 6px; font-family: monospace; font-size: 15px; cursor: pointer; flex-shrink: 0; transition: all 0.1s; }
+        .ekey:active { background: #00ffcc; color: #000; transform: translateY(2px); }
+        .ekey.danger { color: #ff0055; border-color: #550011; }
+        .ekey.danger:active { background: #ff0055; color: #fff; }
+        .status-pulse { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background-color: #00ff00; margin-right: 8px; animation: pulse 2s infinite; }
+        @keyframes pulse { 0% { opacity: 1; box-shadow: 0 0 8px #00ff00; } 50% { opacity: 0.3; box-shadow: 0 0 2px #00ff00; } 100% { opacity: 1; box-shadow: 0 0 8px #00ff00; } }
+        
+        /* Ensures xterm canvas renders cleanly on mobile */
+        .xterm .xterm-viewport { overflow-y: auto !important; }
+    </style>
+</head>
+<body class="flex h-screen w-full">
+
+    <aside class="w-64 bg-[#0a0a0a] border-r border-gray-800 flex flex-col h-full hidden md:flex transition-all z-50" id="sidebar">
+        <div class="p-6 border-b border-gray-800 flex items-center gap-4">
+            <div class="w-12 h-12 rounded-full bg-gradient-to-tr from-green-400 to-blue-500 flex items-center justify-center text-xl font-bold shadow-[0_0_10px_rgba(34,197,94,0.3)]">
+                T
+            </div>
+            <div>
+                <h2 class="font-bold text-lg leading-tight">Tinashe</h2>
+                <p class="text-green-400 text-sm font-mono">Balance: $12.50</p>
+            </div>
+        </div>
+
+        <nav class="flex-1 p-4 flex flex-col gap-2">
+            <button onclick="switchView('view-home')" class="flex items-center gap-3 p-3 rounded-xl hover:bg-gray-800 text-left transition-colors w-full text-gray-300 hover:text-white">
+                <span>💻</span> Active Workspace
+            </button>
+            <button onclick="switchView('view-video')" class="flex items-center gap-3 p-3 rounded-xl hover:bg-gray-800 text-left transition-colors w-full text-gray-300 hover:text-white">
+                <span>🎬</span> Video Lab
+            </button>
+            <button onclick="switchView('view-vault')" class="flex items-center gap-3 p-3 rounded-xl hover:bg-gray-800 text-left transition-colors w-full text-gray-300 hover:text-white">
+                <span>🗄️</span> Data Vault
+            </button>
+        </nav>
+    </aside>
+
+    <main class="flex-1 flex flex-col h-full relative">
+        
+        <header class="md:hidden flex items-center justify-between p-4 bg-[#0a0a0a] border-b border-gray-800 z-40">
+            <div class="flex items-center gap-3">
+                <button onclick="document.getElementById('sidebar').classList.toggle('hidden')" class="text-gray-300 hover:text-white">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+                </button>
+                <h1 class="font-bold text-lg tracking-wider text-green-400">NEO LAB</h1>
+            </div>
+            <div class="text-green-400 text-sm font-mono font-bold">$12.50</div>
+        </header>
+
+        <div class="flex-1 p-4 md:p-6 overflow-y-auto">
+
+            <div id="view-home" class="flex flex-col h-full gap-4">
+                
+                <div class="glass-panel rounded-2xl p-4 flex justify-between items-center border-l-4 border-l-green-500">
+                    <div>
+                        <h3 class="text-xs text-gray-400 uppercase tracking-widest mb-1">Active Datacenter Node</h3>
+                        <p class="font-bold text-lg md:text-xl text-white">NVIDIA RTX 4090 <span class="text-xs text-green-400 bg-green-900/30 px-2 py-1 rounded ml-2">SECURE</span></p>
+                    </div>
+                    <button onclick="connectToDatacenter()" class="bg-green-600 hover:bg-green-500 text-white font-bold py-2 px-4 rounded-lg text-sm shadow-[0_0_10px_rgba(34,197,94,0.4)] active:scale-95 transition-all">
+                        Connect Route
+                    </button>
+                </div>
+
+                <div class="glass-panel rounded-2xl border border-gray-800 flex-1 flex flex-col overflow-hidden relative shadow-2xl">
+                    
+                    <div id="status-bar" class="bg-[#080808] text-[#00ff00] py-2 px-4 text-xs flex justify-between items-center border-b border-[#1a4d1a] font-mono font-bold">
+                        <div class="flex items-center"><span class="status-pulse" id="net-pulse"></span>NEO-OS v12.1 // ROOT_SECURED</div>
+                        <div id="dl-status" class="text-[#00ffcc]">NET: STANDBY</div>
+                    </div>
+
+                    <div id="reconnect-overlay" style="display: none;" class="absolute inset-0 top-[33px] bg-black/90 flex-col justify-center items-center z-50 backdrop-blur-sm">
+                        <div class="text-[#ff0055] text-lg font-bold tracking-widest">[!] CONNECTION LOST [!]</div>
+                        <p class="text-gray-400 text-sm mt-2 mb-6">Datacenter link severed.</p>
+                        <button onclick="connectToDatacenter()" class="border-2 border-[#00ff00] text-[#00ff00] px-6 py-3 rounded hover:bg-[#00ff00] hover:text-black transition-all font-bold">INITIALIZE RECONNECT</button>
+                    </div>
+
+                    <div id="terminal-container" class="flex-1 w-full bg-[#030303] p-2"></div>
+
+                    <div id="extra-keys" class="flex bg-[#0a0a0a] overflow-x-auto whitespace-nowrap p-2 border-t border-[#1a4d1a]">
+                        <button class="ekey" onclick="sendSeq('\x1b')">ESC</button>
+                        <button class="ekey danger" onclick="sendSeq('\x03')">CTRL+C</button>
+                        <button class="ekey" onclick="sendSeq('\x09')">TAB</button>
+                        <button class="ekey" onclick="sendSeq('\x1b[A')">▲</button>
+                        <button class="ekey" onclick="sendSeq('\x1b[B')">▼</button>
+                        <button class="ekey" onclick="sendSeq('\x1b[D')">◀</button>
+                        <button class="ekey" onclick="sendSeq('\x1b[C')">▶</button>
+                        <button class="ekey" onclick="sendSeq('\x1b[H')">HOME</button>
+                        <button class="ekey" onclick="sendSeq('\x1b[F')">END</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="view-video" class="flex-col h-full gap-4 hidden">
+                <h2 class="text-2xl font-bold text-purple-400 mb-4">Video Lab Engine</h2>
+                <div class="glass-panel rounded-2xl p-6 flex flex-col gap-4 border border-purple-500/20">
+                    <textarea class="w-full bg-black/50 border border-gray-700 rounded-xl p-4 text-sm resize-none h-32 text-white outline-none focus:border-purple-500" placeholder="Describe the cinematic sequence..."></textarea>
+                    <button class="w-full bg-purple-600 hover:bg-purple-500 font-bold py-3 rounded-xl transition-all active:scale-95 shadow-[0_0_15px_rgba(147,51,234,0.3)]">Render Sequence ($0.25)</button>
+                </div>
+            </div>
+
+            <div id="view-vault" class="flex-col h-full gap-4 hidden">
+                <h2 class="text-2xl font-bold text-blue-400 mb-4">Data Vault</h2>
+                <div class="glass-panel rounded-2xl p-6 flex flex-col gap-4 border border-blue-500/20">
+                    <div class="bg-black/50 p-4 rounded-xl border border-gray-700">
+                        <h3 class="text-sm font-bold text-white mb-2">API Integrations</h3>
+                        <p class="text-xs text-gray-400 mb-4">Manage your Vast.ai and RunPod Master Keys securely.</p>
+                        <button class="w-full bg-white text-gray-900 hover:bg-gray-200 font-bold py-3 rounded-xl transition-all active:scale-95">Manage Keys</button>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <script>
+        // --- 1. UI Routing Logic ---
+        function switchView(viewId) {
+            ['view-home', 'view-video', 'view-vault'].forEach(id => {
+                const el = document.getElementById(id);
+                el.classList.add('hidden');
+                el.classList.remove('flex');
+            });
+            const target = document.getElementById(viewId);
+            target.classList.remove('hidden');
+            target.classList.add('flex');
+            
+            // Auto-close sidebar on mobile after clicking
+            if(window.innerWidth < 768) {
+                document.getElementById('sidebar').classList.add('hidden');
+            }
+            
+            // Re-fit terminal if switching back to home
+            if(viewId === 'view-home') setTimeout(() => fitAddon.fit(), 100);
+        }
+
+        // --- 2. Advanced NeoX Terminal Engine ---
+        const term = new Terminal({
+            cursorBlink: true,
+            cursorStyle: 'underline',
+            theme: { background: '#030303', foreground: '#00ffcc', cursor: '#00ff00', selectionBackground: 'rgba(0, 255, 204, 0.3)' },
+            fontFamily: '"Courier New", monospace',
+            fontSize: 14,
+            fontWeight: '600'
+        });
+        
+        const fitAddon = new FitAddon.FitAddon();
+        term.loadAddon(fitAddon);
+        term.open(document.getElementById('terminal-container'));
+        
+        // Ensure terminal fits the panel size on load and resize
+        setTimeout(() => fitAddon.fit(), 200);
+        window.addEventListener('resize', () => { 
+            if(!document.getElementById('view-home').classList.contains('hidden')) fitAddon.fit(); 
+        });
+
+        let ws;
+        const netPulse = document.getElementById('net-pulse');
+        const dlStatus = document.getElementById('dl-status');
+
+        // Android Keyboard Native Pass-Through
+        term.onData(data => {
+            if (ws && ws.readyState === WebSocket.OPEN) { ws.send(data); }
+        });
+
+        // Termux Sliding Keys Handler
+        window.sendSeq = function(seq) {
+            if (ws && ws.readyState === WebSocket.OPEN) { 
+                ws.send(seq); 
+                term.focus(); // Keeps Huawei Y9 keyboard open
+            }
+        };
+
+        // --- 3. Datacenter Boot Sequence ---
+        function connectToDatacenter() {
+            document.getElementById('reconnect-overlay').style.display = 'none';
+            term.clear();
+            term.write('\r\n\x1b[33m[SYS] Establishing Secure PTY Route to Vast.ai...\x1b[0m\r\n');
+            
+            netPulse.style.backgroundColor = '#ffcc00'; 
+            const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+            const wsUrl = protocol + "//" + window.location.host + "/ws/terminal";
+            
+            try {
+                ws = new WebSocket(wsUrl);
+
+                ws.onopen = () => {
+                    netPulse.style.backgroundColor = '#00ff00'; 
+                    dlStatus.innerText = "NET: ACTIVE";
+                    dlStatus.style.color = '#00ffcc';
+                    
+                    // 🚨 THE CUSTOM '@' PROMPT INJECTION 🚨
+                    // This creates the authentic Linux environment
+                    const initScript = `
+                        export PS1='\\[\\e[1;32m\\]neo-root\\[\\e[0m\\]:\\[\\e[1;36m\\]\\w\\[\\e[0m\\] \\e[1;32m@\\e[0m '
+                        alias download='wget --show-progress'
+                        clear
+                    `;
+                    ws.send(initScript.trim().replace(/\n/g, '\r') + '\r');
+                    term.focus();
+                };
+
+                ws.onmessage = (event) => {
+                    // Flash the network pulse to show data moving (like downloads)
+                    netPulse.style.boxShadow = '0 0 15px #00ffcc';
+                    setTimeout(() => netPulse.style.boxShadow = '', 50);
+                    
+                    term.write(event.data);
+                };
+
+                ws.onclose = () => {
+                    netPulse.style.backgroundColor = '#ff0055'; 
+                    dlStatus.innerText = "NET: OFFLINE";
+                    dlStatus.style.color = '#ff0055';
+                    document.getElementById('reconnect-overlay').style.display = 'flex';
+                };
+            } catch(e) {
+                term.write('\r\n\x1b[31m[ERROR] Connection engine failed to initialize.\x1b[0m\r\n');
+            }
+        }
+    </script>
+</body>
+              </html>
