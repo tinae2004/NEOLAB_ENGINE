@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aethon // Root Shell</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm/css/xterm.css" />
+    <script src="https://cdn.jsdelivr.net/npm/xterm/lib/xterm.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit/lib/xterm-addon-fit.js"></script>
+    <style>
+        body { background-color: #000; color: #00ff00; margin: 0; padding: 10px; font-family: monospace; }
+        #terminal { width: 100vw; height: 100vh; }
+    </style>
+</head>
+<body>
+    <div id="terminal"></div>
+    <script>
+        const term = new Terminal({
+            theme: { background: '#000000', foreground: '#00ff00', cursor: '#00ff00' },
+            fontFamily: 'monospace',
+            fontSize: 14
+        });
+        const fitAddon = new FitAddon.FitAddon();
+        term.loadAddon(fitAddon);
+        term.open(document.getElementById('terminal'));
+        fitAddon.fit();
+
+        term.writeln('\x1b[1;32m⚡ AETHON LINUX SUBSYSTEM // EXTERNAL TERMINAL\x1b[0m');
+        term.write('$ ');
+
+        const protocol = window.location.protocol === "https:" ? "wss://" : "ws://";
+        const ws = new WebSocket(protocol + window.location.host + "/ws/terminal");
+        let currentCommand = "";
+
+        term.onData(e => {
+            if (e === '\r') {
+                term.write('\r\n');
+                ws.send(currentCommand);
+                currentCommand = "";
+            } else if (e === '\u007F') {
+                if (currentCommand.length > 0) {
+                    term.write('\b \b');
+                    currentCommand = currentCommand.slice(0, -1);
+                }
+            } else {
+                currentCommand += e;
+                term.write(e);
+            }
+        });
+
+        ws.onmessage = (event) => {
+            term.write(event.data.replace(/\n/g, '\r\n'));
+            if (event.data !== "") term.write('\r\n');
+            term.write('$ ');
+        };
+
+        ws.onclose = () => {
+            term.writeln('\r\n\x1b[1;31m[!] Connection lost to host.\x1b[0m');
+        };
+
+        window.addEventListener('resize', () => { fitAddon.fit(); });
+    </script>
+</body>
+</html>
