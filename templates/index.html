@@ -586,5 +586,25 @@ window.initNeoxTerminal = function() {
 
         </main>
     </div>
+<script>
+    let term = new Terminal({ theme: { background: '#000', foreground: '#0f0', cursor: '#0f0' } });
+    let fitAddon = new FitAddon.FitAddon();
+    term.loadAddon(fitAddon);
+
+    function initAethonTerminal() {
+        term.open(document.getElementById('terminal-container'));
+        fitAddon.fit();
+        const ws = new WebSocket((window.location.protocol === "https:" ? "wss://" : "ws://") + window.location.host + "/ws/terminal");
+        
+        term.onData(e => {
+            if (e === '\r') { ws.send(currentCommand); currentCommand = ""; term.write('\r\n'); }
+            else if (e === '\u007F') { if (currentCommand.length > 0) { term.write('\b \b'); currentCommand = currentCommand.slice(0, -1); } }
+            else { currentCommand += e; term.write(e); }
+        });
+        
+        let currentCommand = "";
+        ws.onmessage = (event) => { term.write(event.data.replace(/\n/g, '\r\n')); term.write('\r\n$ '); };
+    }
+</script>
 </body>
   </html>
