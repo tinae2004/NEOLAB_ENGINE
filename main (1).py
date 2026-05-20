@@ -94,4 +94,36 @@ async def websocket_local_terminal(websocket: WebSocket):
             except Exception as e:
                 await websocket.send_text(f"[!] System Error: {str(e)}")
     except WebSocketDisconnect:
-        print("[-] Terminal UI Disconnected.")
+        print("[-] Terminal UI Disconnected.")# --- PASTE THIS AT THE VERY BOTTOM OF main (1).py ---
+
+import pty
+import os
+import asyncio
+import selectors
+
+@app.websocket("/ws/terminal")
+async def websocket_local_terminal(websocket: WebSocket):
+    await websocket.accept()
+    master_fd, slave_fd = pty.openpty()
+    pid = os.fork()
+    if pid == 0:
+        os.setsid()
+        os.dup2(slave_fd, 0); os.dup2(slave_fd, 1); os.dup2(slave_fd, 2)
+        os.close(master_fd)
+        os.execlp("bash", "bash")
+    else:
+        os.close(slave_fd)
+        sel = selectors.DefaultSelector()
+        sel.register(master_fd, selectors.EVENT_READ)
+        try:
+            while True:
+                events = sel.select(timeout=0.1)
+                for key, _ in events:
+                    output = os.read(master_fd, 1024).decode('utf-8', errors='ignore')
+                    await websocket.send_text(output)
+                try:
+                    user_input = await asyncio.wait_for(websocket.receive_text(), timeout=0.1)
+                    os.write(master_fd, user_input.encode('utf-8') + b"\n")
+                except asyncio.TimeoutError: pass
+        except WebSocketDisconnect:
+            os.kill(pid, 9); os.close(master_fd)
